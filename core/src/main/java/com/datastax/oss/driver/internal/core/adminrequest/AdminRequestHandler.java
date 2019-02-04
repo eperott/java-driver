@@ -50,10 +50,7 @@ public class AdminRequestHandler implements ResponseCallback {
   private static final Logger LOG = LoggerFactory.getLogger(AdminRequestHandler.class);
 
   public static AdminRequestHandler query(
-      DriverChannel channel,
-      Query query,
-      Duration timeout,
-      String logPrefix) {
+      DriverChannel channel, Query query, Duration timeout, String logPrefix) {
     return createQuery(channel, query, Collections.emptyMap(), timeout, logPrefix);
   }
 
