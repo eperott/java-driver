@@ -51,6 +51,15 @@ public class AdminRequestHandler implements ResponseCallback {
 
   public static AdminRequestHandler query(
       DriverChannel channel,
+      Query query,
+      Map<String, Object> parameters,
+      Duration timeout,
+      String logPrefix) {
+    return createQuery(channel, query, parameters, timeout, logPrefix);
+  }
+
+  public static AdminRequestHandler query(
+      DriverChannel channel,
       String query,
       Map<String, Object> parameters,
       Duration timeout,
@@ -60,7 +69,17 @@ public class AdminRequestHandler implements ResponseCallback {
         new Query(
             query,
             buildQueryOptions(pageSize, serialize(parameters, channel.protocolVersion()), null));
-    String debugString = "query '" + query + "'";
+    return createQuery(channel, message, parameters, timeout, logPrefix);
+  }
+
+  private static AdminRequestHandler createQuery(
+      DriverChannel channel,
+      Query message,
+      Map<String, Object> parameters,
+      Duration timeout,
+      String logPrefix) {
+
+    String debugString = "query '" + message.query + "'";
     if (!parameters.isEmpty()) {
       debugString += " with parameters " + parameters;
     }
