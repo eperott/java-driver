@@ -52,10 +52,9 @@ public class AdminRequestHandler implements ResponseCallback {
   public static AdminRequestHandler query(
       DriverChannel channel,
       Query query,
-      Map<String, Object> parameters,
       Duration timeout,
       String logPrefix) {
-    return createQuery(channel, query, parameters, timeout, logPrefix);
+    return createQuery(channel, query, Collections.emptyMap(), timeout, logPrefix);
   }
 
   public static AdminRequestHandler query(
