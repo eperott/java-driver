@@ -165,7 +165,6 @@ public class AdminRequestHandler implements ResponseCallback {
       setFinalResult(new AdminResult(rows, nextHandler, channel.protocolVersion()));
     } else if (message instanceof Prepared
         || message instanceof com.datastax.oss.protocol.internal.response.result.Void) {
-      //todo can we add Void here as it also only cares only about success?
 
       // Internal prepares are only "reprepare on up" types of queries, where we only care about
       // success, not the actual result, so this is good enough:
