@@ -19,7 +19,7 @@ import com.datastax.oss.driver.api.core.data.GettableByName;
 import com.datastax.oss.driver.api.core.data.SettableByName;
 import com.datastax.oss.driver.api.core.data.UdtValue;
 import com.datastax.oss.driver.api.core.type.UserDefinedType;
-import com.datastax.oss.driver.api.mapper.annotations.Entity;
+import com.datastax.oss.driver.internal.mapper.processor.ProcessorContext;
 import com.datastax.oss.driver.shaded.guava.common.collect.ImmutableMap;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.CodeBlock;
@@ -27,13 +27,7 @@ import com.squareup.javapoet.MethodSpec;
 import com.squareup.javapoet.TypeName;
 import java.util.List;
 import java.util.Map;
-import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
-import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
-import javax.lang.model.type.DeclaredType;
-import javax.lang.model.type.TypeKind;
-import javax.lang.model.type.TypeMirror;
 
 /** A collection of recurring patterns in our generated sources. */
 public class GeneratedCodePatterns {
@@ -61,15 +55,15 @@ public class GeneratedCodePatterns {
   public static void bindParameters(
       List<? extends VariableElement> parameters,
       MethodSpec.Builder methodBuilder,
-      BindableHandlingSharedCode enclosingClass) {
+      BindableHandlingSharedCode enclosingClass,
+      ProcessorContext context) {
 
     for (VariableElement parameter : parameters) {
       String parameterName = parameter.getSimpleName().toString();
-      TypeMirror typeMirror = parameter.asType();
+      PropertyType type = PropertyType.parse(parameter.asType(), context);
       setValue(
           parameterName,
-          TypeName.get(typeMirror),
-          getEntityElement(typeMirror),
+          type,
           CodeBlock.of("$L", parameterName),
           "boundStatementBuilder",
           methodBuilder,
@@ -87,8 +81,7 @@ public class GeneratedCodePatterns {
    * }</pre>
    *
    * @param cqlName the CQL name to set ({@code "id"})
-   * @param type the Java type of the value ({@code UUID})
-   * @param entityElement if the value is a mapped entity, the corresponding element
+   * @param type the type of the value ({@code UUID})
    * @param valueExtractor the code snippet to extract the value ({@code entity.getId()}
    * @param targetName the name of the target {@link SettableByName} instance ({@code target})
    * @param methodBuilder where to add the code
@@ -97,8 +90,7 @@ public class GeneratedCodePatterns {
    */
   public static void setValue(
       String cqlName,
-      TypeName type,
-      TypeElement entityElement,
+      PropertyType type,
       CodeBlock valueExtractor,
       String targetName,
       MethodSpec.Builder methodBuilder,
@@ -106,9 +98,36 @@ public class GeneratedCodePatterns {
 
     methodBuilder.addComment("$L:", cqlName);
 
-    // TODO handle collections of UDTs (JAVA-2129)
-
-    if (entityElement != null) {
+    if (type instanceof PropertyType.Simple) {
+      TypeName typeName = ((PropertyType.Simple) type).typeName;
+      String primitiveAccessor = GeneratedCodePatterns.PRIMITIVE_ACCESSORS.get(typeName);
+      if (primitiveAccessor != null) {
+        // Primitive type: use dedicated setter, since it is optimized to avoid boxing.
+        //     target = target.setInt("length", entity.getLength());
+        methodBuilder.addStatement(
+            "$1L = $1L.set$2L($3S, $4L)", targetName, primitiveAccessor, cqlName, valueExtractor);
+      } else if (typeName instanceof ClassName) {
+        // Unparameterized class: use the generic, class-based setter.
+        //     target = target.set("id", entity.getId(), UUID.class);
+        methodBuilder.addStatement(
+            "$1L = $1L.set($2S, $3L, $4T.class)", targetName, cqlName, valueExtractor, typeName);
+      } else {
+        // Parameterized type: create a constant and use the GenericType-based setter.
+        //     private static final GenericType<List<String>> GENERIC_TYPE =
+        //         new GenericType<List<String>>(){};
+        //     target = target.set("names", entity.getNames(), GENERIC_TYPE);
+        // Note that lists, sets and maps of unparameterized classes also fall under that
+        // category. Their setter creates a GenericType under the hood, so there's no performance
+        // advantage in calling them instead of the generic set().
+        methodBuilder.addStatement(
+            "$1L = $1L.set($2S, $3L, $4L)",
+            targetName,
+            cqlName,
+            valueExtractor,
+            enclosingClass.addGenericTypeConstant(typeName));
+      }
+    } else if (type instanceof PropertyType.SingleEntity) {
+      ClassName entityName = ((PropertyType.SingleEntity) type).entityName;
       // Other entity class: the CQL column is a mapped UDT. Example of generated code:
       //     Dimensions value = entity.getDimensions();
       //     if (value != null) {
@@ -125,7 +144,7 @@ public class GeneratedCodePatterns {
       String valueName = enclosingClass.getNameIndex().uniqueField("value");
 
       methodBuilder
-          .addStatement("$T $L = $L", type, valueName, valueExtractor)
+          .addStatement("$T $L = $L", entityName, valueName, valueExtractor)
           .beginControlFlow("if ($L != null)", valueName)
           .addStatement(
               "$1T $2L = ($1T) $3L.getType($4S)",
@@ -134,53 +153,13 @@ public class GeneratedCodePatterns {
               targetName,
               cqlName)
           .addStatement("$T $L = $L.newValue()", UdtValue.class, udtValueName, udtTypeName);
-      String childHelper = enclosingClass.addEntityHelperField(entityElement);
+      String childHelper = enclosingClass.addEntityHelperField(entityName);
       methodBuilder
           .addStatement("$L.set($L, $L)", childHelper, valueName, udtValueName)
           .addStatement("$1L = $1L.setUdtValue($2S, $3L)", targetName, cqlName, udtValueName)
           .endControlFlow();
     } else {
-      String primitiveAccessor = GeneratedCodePatterns.PRIMITIVE_ACCESSORS.get(type);
-      if (primitiveAccessor != null) {
-        // Primitive type: use dedicated setter, since it is optimized to avoid boxing.
-        //     target = target.setInt("length", entity.getLength());
-        methodBuilder.addStatement(
-            "$1L = $1L.set$2L($3S, $4L)", targetName, primitiveAccessor, cqlName, valueExtractor);
-      } else if (type instanceof ClassName) {
-        // Unparameterized class: use the generic, class-based setter.
-        //     target = target.set("id", entity.getId(), UUID.class);
-        methodBuilder.addStatement(
-            "$1L = $1L.set($2S, $3L, $4T.class)", targetName, cqlName, valueExtractor, type);
-      } else {
-        // Parameterized type: create a constant and use the GenericType-based setter.
-        //     private static final GenericType<List<String>> GENERIC_TYPE =
-        //         new GenericType<List<String>>(){};
-        //     target = target.set("names", entity.getNames(), GENERIC_TYPE);
-        // Note that lists, sets and maps of unparameterized classes also fall under that
-        // category. Their setter creates a GenericType under the hood, so there's no performance
-        // advantage in calling them instead of the generic set().
-        methodBuilder.addStatement(
-            "$1L = $1L.set($2S, $3L, $4L)",
-            targetName,
-            cqlName,
-            valueExtractor,
-            enclosingClass.addGenericTypeConstant(type));
-      }
+      throw new UnsupportedOperationException("TODO handle collections of UDTs");
     }
-  }
-
-  /**
-   * If the given type mirror is the declared type for an {@link Entity}-annotated class, returns
-   * the element for that class, otherwise null.
-   */
-  private static TypeElement getEntityElement(TypeMirror typeMirror) {
-    if (typeMirror.getKind() == TypeKind.DECLARED) {
-      DeclaredType declaredType = (DeclaredType) typeMirror;
-      Element element = declaredType.asElement();
-      if (element.getKind() == ElementKind.CLASS && element.getAnnotation(Entity.class) != null) {
-        return ((TypeElement) element);
-      }
-    }
-    return null;
   }
 }

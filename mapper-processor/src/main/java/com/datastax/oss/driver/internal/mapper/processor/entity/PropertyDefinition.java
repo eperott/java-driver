@@ -15,9 +15,7 @@
  */
 package com.datastax.oss.driver.internal.mapper.processor.entity;
 
-import com.datastax.oss.driver.api.mapper.annotations.Entity;
-import com.squareup.javapoet.TypeName;
-import javax.lang.model.element.TypeElement;
+import com.datastax.oss.driver.internal.mapper.processor.util.generation.PropertyType;
 
 public interface PropertyDefinition {
 
@@ -27,13 +25,5 @@ public interface PropertyDefinition {
 
   String getSetterName();
 
-  // TODO revisit getType() / getEntityElement() for collections of UDTs
-
-  TypeName getType();
-
-  /**
-   * If the {@linkplain #getType() type} of this property is another {@link Entity}-annotated class,
-   * the definition of that class. Otherwise null.
-   */
-  TypeElement getEntityElement();
+  PropertyType getType();
 }
