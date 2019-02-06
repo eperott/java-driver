@@ -16,6 +16,7 @@
 package com.datastax.oss.driver.mapper.model.inventory;
 
 import com.datastax.oss.driver.api.mapper.annotations.Entity;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -24,6 +25,7 @@ public class Product {
   private UUID id;
   private String description;
   private Dimensions dimensions;
+  private List<Dimensions> otherDimensions;
 
   public Product() {}
 
@@ -55,5 +57,13 @@ public class Product {
 
   public void setDimensions(Dimensions dimensions) {
     this.dimensions = dimensions;
+  }
+
+  public List<Dimensions> getOtherDimensions() {
+    return otherDimensions;
+  }
+
+  public void setOtherDimensions(List<Dimensions> otherDimensions) {
+    this.otherDimensions = otherDimensions;
   }
 }

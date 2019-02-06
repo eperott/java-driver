@@ -17,10 +17,15 @@ package com.datastax.oss.driver.internal.mapper.processor.util.generation;
 
 import com.datastax.oss.driver.api.core.data.GettableByName;
 import com.datastax.oss.driver.api.core.data.SettableByName;
+import com.datastax.oss.driver.api.core.data.UdtValue;
 import com.datastax.oss.driver.api.mapper.annotations.Entity;
 import com.datastax.oss.driver.internal.mapper.processor.ProcessorContext;
 import com.squareup.javapoet.ClassName;
+import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
@@ -32,7 +37,12 @@ import javax.lang.model.type.TypeMirror;
  * <p>The goal is to detect if the type contains other mapped entities, that must be translated into
  * UDT values.
  */
-public class PropertyType {
+public abstract class PropertyType {
+
+  private static final ClassName UDT_VALUE_CLASS_NAME = ClassName.get(UdtValue.class);
+  public static final ClassName LIST_CLASS_NAME = ClassName.get(List.class);
+  public static final ClassName SET_CLASS_NAME = ClassName.get(Set.class);
+  public static final ClassName MAP_CLASS_NAME = ClassName.get(Map.class);
 
   public static PropertyType parse(TypeMirror typeMirror, ProcessorContext context) {
     if (typeMirror.getKind() == TypeKind.DECLARED) {
@@ -60,6 +70,14 @@ public class PropertyType {
     return new Simple(typeMirror);
   }
 
+  public abstract TypeName asTypeName();
+
+  /**
+   * Returns the name of the type we will convert to before saving to the database; that is,
+   * replacing every entity class by {@code UdtValue}.
+   */
+  public abstract TypeName asConvertedTypeName();
+
   /**
    * A type that does not contain any mapped entity.
    *
@@ -71,6 +89,16 @@ public class PropertyType {
     public Simple(TypeMirror typeMirror) {
       this.typeName = ClassName.get(typeMirror);
     }
+
+    @Override
+    public TypeName asTypeName() {
+      return typeName;
+    }
+
+    @Override
+    public TypeName asConvertedTypeName() {
+      return typeName;
+    }
   }
 
   /** A mapped entity. */
@@ -79,6 +107,16 @@ public class PropertyType {
 
     public SingleEntity(DeclaredType declaredType) {
       this.entityName = (ClassName) TypeName.get(declaredType);
+    }
+
+    @Override
+    public TypeName asTypeName() {
+      return entityName;
+    }
+
+    @Override
+    public TypeName asConvertedTypeName() {
+      return UDT_VALUE_CLASS_NAME;
     }
   }
 
@@ -89,6 +127,16 @@ public class PropertyType {
     public EntityList(PropertyType elementType) {
       this.elementType = elementType;
     }
+
+    @Override
+    public TypeName asTypeName() {
+      return ParameterizedTypeName.get(LIST_CLASS_NAME, elementType.asTypeName());
+    }
+
+    @Override
+    public TypeName asConvertedTypeName() {
+      return ParameterizedTypeName.get(LIST_CLASS_NAME, elementType.asConvertedTypeName());
+    }
   }
 
   /** A set of another non-simple type. */
@@ -97,6 +145,16 @@ public class PropertyType {
 
     public EntitySet(PropertyType elementType) {
       this.elementType = elementType;
+    }
+
+    @Override
+    public TypeName asTypeName() {
+      return ParameterizedTypeName.get(SET_CLASS_NAME, elementType.asTypeName());
+    }
+
+    @Override
+    public TypeName asConvertedTypeName() {
+      return ParameterizedTypeName.get(SET_CLASS_NAME, elementType.asConvertedTypeName());
     }
   }
 
@@ -108,6 +166,18 @@ public class PropertyType {
     public EntityMap(PropertyType keyType, PropertyType valueType) {
       this.keyType = keyType;
       this.valueType = valueType;
+    }
+
+    @Override
+    public TypeName asTypeName() {
+      return ParameterizedTypeName.get(
+          MAP_CLASS_NAME, keyType.asTypeName(), valueType.asTypeName());
+    }
+
+    @Override
+    public TypeName asConvertedTypeName() {
+      return ParameterizedTypeName.get(
+          MAP_CLASS_NAME, keyType.asConvertedTypeName(), valueType.asConvertedTypeName());
     }
   }
 }
